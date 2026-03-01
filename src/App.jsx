@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { BookHeart, Send, Sparkles, CalendarDays, MoreHorizontal, Bold, Italic, Strikethrough, List, Type } from 'lucide-react';
+import { BookHeart, Send, Sparkles, CalendarDays, MoreHorizontal, Bold, Italic, Strikethrough, List, Type, Trash2 } from 'lucide-react';
 import './App.css';
 
 // --- Utility Functions ---
@@ -18,33 +18,16 @@ const getDisplayDate = (dateString) => {
   return d.toLocaleDateString('en-US', options);
 };
 
-// Generate realistic mock data for the streak
-const generateMockEntries = () => {
-  const entries = [];
-  const today = new Date();
-  
-  for (let i = 0; i < 180; i++) {
-    // 60% chance to have an entry on any given day
-    if (Math.random() > 0.4) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const dateStr = formatDateString(d);
-      
-      entries.push({
-        id: `mock-${i}`,
-        dateStr: dateStr,
-        text: `Journal entry for <b>${getDisplayDate(dateStr)}</b>. <br/><br/>Feeling pretty good today! ✨`,
-        timestamp: d.getTime()
-      });
-    }
-  }
-  return entries.sort((a, b) => b.timestamp - a.timestamp);
-};
-
 export default function App() {
-  const [entries, setEntries] = useState([]);
+  // Load from localStorage if available, otherwise start empty
+  const [entries, setEntries] = useState(() => {
+    const saved = localStorage.getItem('bellenote-entries');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   const [currentNote, setCurrentNote] = useState('');
-  const [columnsToShow, setColumnsToShow] = useState(14); // Dynamically calculated
+  const [columnsToShow, setColumnsToShow] = useState(14);
+  const [showMenu, setShowMenu] = useState(false);
   const [activeFormats, setActiveFormats] = useState({
     bold: false,
     italic: false,
@@ -56,29 +39,25 @@ export default function App() {
   const sectionRef = useRef(null);
   const editorRef = useRef(null);
 
+  // Save to localStorage whenever entries change
   useEffect(() => {
-    setEntries(generateMockEntries());
-  }, []);
+    localStorage.setItem('bellenote-entries', JSON.stringify(entries));
+  }, [entries]);
 
   // --- Responsive Graph Calculation ---
   useEffect(() => {
     const calculateWidth = () => {
       if (sectionRef.current) {
-        // Get total width of the section element
         const sectionWidth = sectionRef.current.clientWidth;
-        // Subtract padding (p-5 = 20px each side = 40px) and Day labels width (~30px)
-        const availableWidth = sectionWidth - 40 - 30;
-        // Each column is 14px wide + 4px gap = 18px
-        const colWidth = 18; 
+        const availableWidth = sectionWidth - 40 - 30; // Account for padding & y-axis labels
+        const colWidth = 18; // 14px width + 4px gap
         const cols = Math.floor(availableWidth / colWidth);
-        
-        // Ensure at least 10 weeks show on the tiniest screens
-        setColumnsToShow(Math.max(cols, 10)); 
+        setColumnsToShow(Math.max(cols, 8)); // Minimum 8 columns on tiniest screens
       }
     };
 
-    calculateWidth(); // Calculate immediately on mount
-    window.addEventListener('resize', calculateWidth); // Recalculate on window resize
+    calculateWidth();
+    window.addEventListener('resize', calculateWidth);
     return () => window.removeEventListener('resize', calculateWidth);
   }, []);
 
@@ -99,6 +78,13 @@ export default function App() {
     setEntries(prev => [newEntry, ...prev]);
     setCurrentNote('');
     if (editorRef.current) editorRef.current.innerHTML = '';
+  };
+
+  const handleResetLogs = () => {
+    if (window.confirm("Are you sure you want to delete all your logs? This action cannot be undone.")) {
+      setEntries([]);
+      setShowMenu(false);
+    }
   };
 
   const checkActiveFormats = () => {
@@ -129,6 +115,7 @@ export default function App() {
     const startDate = new Date(today);
     startDate.setDate(today.getDate() - daysToShow + (7 - today.getDay()) % 7 - 7);
     
+    // Ensure we start on a Sunday for the grid alignment
     while (startDate.getDay() !== 0) {
       startDate.setDate(startDate.getDate() - 1);
     }
@@ -163,23 +150,28 @@ export default function App() {
       if (!day) break;
       
       const currentMonth = day.dateObj.getMonth();
-      // If month changes, insert a label at this column index
+      // When a new month starts in the grid
       if (currentMonth !== lastMonth) {
-        // Prevent adding a label if it's too close to the right edge (will get cut off)
-        if (i / 7 < columnsToShow - 2) {
+        const colIndex = i / 7;
+        
+        // Hide the absolute oldest month (the very first one encountered) 
+        // to prevent overlapping the left edge, but guarantee the latest month shows.
+        if (lastMonth !== -1 && colIndex > 0) {
           labels.push({
             text: day.dateObj.toLocaleString('en-US', { month: 'short' }),
-            colIndex: i / 7
+            colIndex: colIndex
           });
         }
         lastMonth = currentMonth;
       }
     }
     return labels;
-  }, [graphData, columnsToShow]);
+  }, [graphData]);
 
   // Calculate current streak
   const streak = useMemo(() => {
+    if (entries.length === 0) return 0;
+
     let count = 0;
     const today = new Date();
     const entryDates = new Set(entries.map(e => e.dateStr));
@@ -200,14 +192,18 @@ export default function App() {
   const recentEntries = entries.slice(0, 10);
 
   return (
-    <div className="min-h-screen bg-[#FFFDFE] text-slate-800 font-sans selection:bg-pink-200">
+    <div className="min-h-screen bg-[#FFFDFE] text-slate-800 font-sans selection:bg-pink-200" onClick={() => showMenu && setShowMenu(false)}>
       
-      <div className="max-w-md mx-auto min-h-screen bg-white shadow-xl shadow-pink-100/50 flex flex-col relative overflow-hidden">
+      <div className="max-w-md mx-auto min-h-screen bg-white shadow-xl shadow-pink-100/50 flex flex-col relative overflow-hidden" onClick={e => e.stopPropagation()}>
         
         {/* Decorative Background */}
-        <div className="absolute top-0 left-0 w-64 h-64 bg-pink-100 rounded-full mix-blend-multiply filter blur-3xl opacity-50 -translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
-        <div className="absolute top-40 right-0 w-64 h-64 bg-rose-100 rounded-full mix-blend-multiply filter blur-3xl opacity-50 translate-x-1/3 pointer-events-none"></div>
-
+        <div className="absolute top-0 left-0 w-72 h-72 bg-pink-200 rounded-full mix-blend-multiply filter blur-3xl opacity-40 -translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
+        <div className="absolute top-40 right-0 w-72 h-72 bg-rose-200 rounded-full mix-blend-multiply filter blur-3xl opacity-40 translate-x-1/3 pointer-events-none"></div>
+        
+        {/* New Red and Pink Blobs */}
+        <div className="absolute bottom-32 left-0 w-64 h-64 bg-red-200 rounded-full mix-blend-multiply filter blur-3xl opacity-40 -translate-x-1/2 pointer-events-none"></div>
+        <div className="absolute bottom-0 right-0 w-80 h-80 bg-pink-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 translate-x-1/4 translate-y-1/4 pointer-events-none"></div>
+        <div className="absolute top-1/2 left-1/4 w-96 h-96 bg-red-100 rounded-full mix-blend-multiply filter blur-3xl opacity-30 -translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
         <header className="px-6 pt-12 pb-6 flex items-center justify-between relative z-10">
           <div className="flex items-center gap-2">
             <div className="bg-pink-500 p-2 rounded-xl text-white shadow-sm shadow-pink-200">
@@ -217,9 +213,28 @@ export default function App() {
               Belle<span className="text-pink-500 font-light">Note</span>
             </h1>
           </div>
-          <button className="text-slate-400 hover:text-pink-500 transition-colors">
-            <MoreHorizontal size={24} />
-          </button>
+          
+          {/* Dropdown Menu */}
+          <div className="relative">
+            <button 
+              onClick={() => setShowMenu(!showMenu)}
+              className="text-slate-400 hover:text-pink-500 transition-colors p-1"
+            >
+              <MoreHorizontal size={24} />
+            </button>
+            
+            {showMenu && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-pink-100 rounded-xl shadow-lg py-2 z-50 animate-in fade-in zoom-in-95 duration-200">
+                <button 
+                  onClick={handleResetLogs}
+                  className="w-full text-left px-4 py-2.5 text-sm font-medium text-red-500 hover:bg-red-50 transition-colors flex items-center gap-2"
+                >
+                  <Trash2 size={16} />
+                  Reset All Logs
+                </button>
+              </div>
+            )}
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto px-6 pb-24 z-10 space-y-8 no-scrollbar">
@@ -254,8 +269,7 @@ export default function App() {
             </div>
             
             <div className="flex gap-2">
-              {/* Day Labels (Left) */}
-              <div className="flex flex-col justify-between text-[10px] text-slate-400 font-medium pt-[20px] pb-1 w-[23px] h-[142px]">
+              <div className="flex flex-col justify-between text-[10px] text-slate-400 font-medium pt-[20px] pb-1 w-[20px] h-[142px]">
                 <span className="leading-[14px]"></span>
                 <span className="leading-[14px]">Mon</span>
                 <span className="leading-[14px]"></span>
@@ -265,9 +279,7 @@ export default function App() {
                 <span className="leading-[14px]"></span>
               </div>
 
-              {/* Month Labels & Grid Wrapper */}
               <div className="flex-1 overflow-hidden">
-                {/* Month Labels (Top) */}
                 <div className="relative h-[20px] w-full text-[10px] text-slate-400 font-medium">
                   {monthLabels.map((label, i) => (
                     <span 
@@ -280,13 +292,12 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* Grid */}
                 <div 
-                  className="grid gap-[4px]" 
+                  className="grid gap-[4px] justify-end" 
                   style={{ 
                     gridTemplateRows: 'repeat(7, 14px)', 
                     gridAutoFlow: 'column',
-                    width: 'max-content' 
+                    width: '100%' 
                   }}
                 >
                   {graphData.map((day, i) => (
