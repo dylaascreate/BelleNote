@@ -1,8 +1,23 @@
 #root {
   max-width: 1280px;
+  width: 100%; /* Ensures the container doesn't exceed screen width */
   margin: 0 auto;
-  padding: 2rem;
+  padding: 1rem; /* Smaller padding for mobile devices */
   text-align: center;
+  box-sizing: border-box; /* Includes padding in the width calculation */
+  
+  /* --- Text Wrapping Properties --- */
+  overflow-wrap: break-word; /* Breaks long words onto the next line */
+  word-wrap: break-word; /* Legacy support for overflow-wrap */
+  word-break: break-word; /* Prevents long continuous strings from overflowing */
+  hyphens: auto; /* Adds hyphens when breaking words (optional, but good for mobile) */
+}
+
+/* Add some breathing room for larger screens */
+@media (min-width: 768px) {
+  #root {
+    padding: 2rem;
+  }
 }
 
 .logo {
@@ -10,6 +25,9 @@
   padding: 1.5em;
   will-change: filter;
   transition: filter 300ms;
+  /* Make sure images scale down on tiny screens */
+  max-width: 100%;
+  height: auto;
 }
 .logo:hover {
   filter: drop-shadow(0 0 2em #646cffaa);
@@ -35,8 +53,24 @@
 
 .card {
   padding: 2em;
+  /* Ensure cards don't overflow on small screens */
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 1.5em 1em; /* Tighter padding for mobile cards */
+  }
 }
 
 .read-the-docs {
   color: #888;
+}
+
+/* Universal text wrapping backup for all text elements inside App */
+p, h1, h2, h3, h4, h5, h6, span, a {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  max-width: 100%;
 }

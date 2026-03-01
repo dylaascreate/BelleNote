@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BookHeart, Send, Sparkles, CalendarDays, MoreHorizontal, Bold, Italic, Strikethrough, List, Type } from 'lucide-react';
+import './App.css';
 
 // --- Utility Functions ---
 const formatDateString = (date) => {
@@ -13,7 +14,6 @@ const formatDateString = (date) => {
 const getDisplayDate = (dateString) => {
   const options = { weekday: 'long', month: 'long', day: 'numeric' };
   const d = new Date(dateString);
-  // Fix timezone offset issues for local display
   d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
   return d.toLocaleDateString('en-US', options);
 };
@@ -23,9 +23,9 @@ const generateMockEntries = () => {
   const entries = [];
   const today = new Date();
   
-  for (let i = 0; i < 90; i++) {
-    // 70% chance to have an entry on any given day in the past 90 days
-    if (Math.random() > 0.3) {
+  for (let i = 0; i < 180; i++) {
+    // 60% chance to have an entry on any given day
+    if (Math.random() > 0.4) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
       const dateStr = formatDateString(d);
@@ -33,7 +33,7 @@ const generateMockEntries = () => {
       entries.push({
         id: `mock-${i}`,
         dateStr: dateStr,
-        text: `Journal entry for <b>${getDisplayDate(dateStr)}</b>. <br/><br/>Feeling pretty good today! Focused on self-care and productivity. ✨`,
+        text: `Journal entry for <b>${getDisplayDate(dateStr)}</b>. <br/><br/>Feeling pretty good today! ✨`,
         timestamp: d.getTime()
       });
     }
@@ -44,7 +44,7 @@ const generateMockEntries = () => {
 export default function App() {
   const [entries, setEntries] = useState([]);
   const [currentNote, setCurrentNote] = useState('');
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [columnsToShow, setColumnsToShow] = useState(14); // Dynamically calculated
   const [activeFormats, setActiveFormats] = useState({
     bold: false,
     italic: false,
@@ -52,24 +52,37 @@ export default function App() {
     insertUnorderedList: false,
     fontName: 'Arial'
   });
-  const graphContainerRef = useRef(null);
+  
+  const sectionRef = useRef(null);
   const editorRef = useRef(null);
 
   useEffect(() => {
-    // Load mock data on initial render
     setEntries(generateMockEntries());
-    setIsLoaded(true);
   }, []);
 
-  // Scroll to the right end of the graph (most recent) on load
+  // --- Responsive Graph Calculation ---
   useEffect(() => {
-    if (isLoaded && graphContainerRef.current) {
-      graphContainerRef.current.scrollLeft = graphContainerRef.current.scrollWidth;
-    }
-  }, [isLoaded]);
+    const calculateWidth = () => {
+      if (sectionRef.current) {
+        // Get total width of the section element
+        const sectionWidth = sectionRef.current.clientWidth;
+        // Subtract padding (p-5 = 20px each side = 40px) and Day labels width (~30px)
+        const availableWidth = sectionWidth - 40 - 30;
+        // Each column is 14px wide + 4px gap = 18px
+        const colWidth = 18; 
+        const cols = Math.floor(availableWidth / colWidth);
+        
+        // Ensure at least 10 weeks show on the tiniest screens
+        setColumnsToShow(Math.max(cols, 10)); 
+      }
+    };
+
+    calculateWidth(); // Calculate immediately on mount
+    window.addEventListener('resize', calculateWidth); // Recalculate on window resize
+    return () => window.removeEventListener('resize', calculateWidth);
+  }, []);
 
   const handleSaveNote = () => {
-    // Basic validation to check if it's not just empty HTML tags
     const plainText = currentNote.replace(/<[^>]*>?/gm, '').trim();
     if (!plainText) return;
 
@@ -85,9 +98,7 @@ export default function App() {
 
     setEntries(prev => [newEntry, ...prev]);
     setCurrentNote('');
-    if (editorRef.current) {
-      editorRef.current.innerHTML = '';
-    }
+    if (editorRef.current) editorRef.current.innerHTML = '';
   };
 
   const checkActiveFormats = () => {
@@ -113,13 +124,11 @@ export default function App() {
   // --- Graph Logic ---
   const graphData = useMemo(() => {
     const today = new Date();
-    const daysToShow = 14 * 7; // 14 weeks
+    const daysToShow = columnsToShow * 7;
     
-    // Find the Sunday of 14 weeks ago
     const startDate = new Date(today);
     startDate.setDate(today.getDate() - daysToShow + (7 - today.getDay()) % 7 - 7);
     
-    // Adjust start date to be exactly a Sunday
     while (startDate.getDay() !== 0) {
       startDate.setDate(startDate.getDate() - 1);
     }
@@ -127,10 +136,8 @@ export default function App() {
     const grid = [];
     let currentDate = new Date(startDate);
     const endDate = new Date(today);
-    // Include the rest of the current week to keep the grid square
     endDate.setDate(today.getDate() + (6 - today.getDay())); 
 
-    // Create a Set of dates that have entries for O(1) lookup
     const entryDates = new Set(entries.map(e => e.dateStr));
 
     while (currentDate <= endDate) {
@@ -143,49 +150,64 @@ export default function App() {
       });
       currentDate.setDate(currentDate.getDate() + 1);
     }
-
     return grid;
-  }, [entries]);
+  }, [entries, columnsToShow]);
+
+  // Calculate Month Labels based on graph data
+  const monthLabels = useMemo(() => {
+    const labels = [];
+    let lastMonth = -1;
+    
+    for (let i = 0; i < graphData.length; i += 7) {
+      const day = graphData[i];
+      if (!day) break;
+      
+      const currentMonth = day.dateObj.getMonth();
+      // If month changes, insert a label at this column index
+      if (currentMonth !== lastMonth) {
+        // Prevent adding a label if it's too close to the right edge (will get cut off)
+        if (i / 7 < columnsToShow - 2) {
+          labels.push({
+            text: day.dateObj.toLocaleString('en-US', { month: 'short' }),
+            colIndex: i / 7
+          });
+        }
+        lastMonth = currentMonth;
+      }
+    }
+    return labels;
+  }, [graphData, columnsToShow]);
 
   // Calculate current streak
   const streak = useMemo(() => {
     let count = 0;
     const today = new Date();
     const entryDates = new Set(entries.map(e => e.dateStr));
-    
-    // Start checking from today
     let checkDate = new Date(today);
     
-    // If no entry today, check if there was one yesterday to keep streak alive
     if (!entryDates.has(formatDateString(checkDate))) {
       checkDate.setDate(checkDate.getDate() - 1);
-      if (!entryDates.has(formatDateString(checkDate))) {
-        return 0; // No entry today or yesterday, streak is 0
-      }
+      if (!entryDates.has(formatDateString(checkDate))) return 0;
     }
 
     while (entryDates.has(formatDateString(checkDate))) {
       count++;
       checkDate.setDate(checkDate.getDate() - 1);
     }
-    
     return count;
   }, [entries]);
 
-  // Group entries by date for the history list
-  const recentEntries = entries.slice(0, 10); // Show only last 10 entries for UI brevity
+  const recentEntries = entries.slice(0, 10);
 
   return (
     <div className="min-h-screen bg-[#FFFDFE] text-slate-800 font-sans selection:bg-pink-200">
       
-      {/* --- Mobile Container --- */}
       <div className="max-w-md mx-auto min-h-screen bg-white shadow-xl shadow-pink-100/50 flex flex-col relative overflow-hidden">
         
-        {/* Decorative Background Blurs */}
+        {/* Decorative Background */}
         <div className="absolute top-0 left-0 w-64 h-64 bg-pink-100 rounded-full mix-blend-multiply filter blur-3xl opacity-50 -translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
         <div className="absolute top-40 right-0 w-64 h-64 bg-rose-100 rounded-full mix-blend-multiply filter blur-3xl opacity-50 translate-x-1/3 pointer-events-none"></div>
 
-        {/* --- Header --- */}
         <header className="px-6 pt-12 pb-6 flex items-center justify-between relative z-10">
           <div className="flex items-center gap-2">
             <div className="bg-pink-500 p-2 rounded-xl text-white shadow-sm shadow-pink-200">
@@ -200,10 +222,8 @@ export default function App() {
           </button>
         </header>
 
-        {/* --- Main Content --- */}
         <main className="flex-1 overflow-y-auto px-6 pb-24 z-10 space-y-8 no-scrollbar">
           
-          {/* Streak & Greeting */}
           <section className="space-y-1">
             <h2 className="text-sm font-medium text-pink-500 flex items-center gap-1.5 uppercase tracking-wider">
               <Sparkles size={14} />
@@ -221,7 +241,10 @@ export default function App() {
           </section>
 
           {/* GitHub-style Streak Graph */}
-          <section className="bg-white border border-pink-50 rounded-2xl p-5 shadow-sm shadow-pink-100/30">
+          <section 
+            ref={sectionRef} 
+            className="bg-white border border-pink-50 rounded-2xl p-5 shadow-sm shadow-pink-100/30 w-full"
+          >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold flex items-center gap-2 text-slate-700">
                 <CalendarDays size={16} className="text-pink-400" />
@@ -230,34 +253,58 @@ export default function App() {
               <span className="text-xs text-slate-400 font-medium">{entries.length} Total Logs</span>
             </div>
             
-            {/* Scrollable Graph Container */}
-            <div 
-              ref={graphContainerRef}
-              className="overflow-x-auto no-scrollbar pb-2 -mx-2 px-2"
-            >
-              <div 
-                className="grid gap-[4px]" 
-                style={{ 
-                  gridTemplateRows: 'repeat(7, 1fr)', 
-                  gridAutoFlow: 'column',
-                  width: 'max-content' 
-                }}
-              >
-                {graphData.map((day, i) => (
-                  <div
-                    key={i}
-                    title={day.isFuture ? '' : `${getDisplayDate(day.dateStr)}`}
-                    className={`
-                      w-[14px] h-[14px] rounded-[4px] transition-all duration-300
-                      ${day.isFuture 
-                        ? 'bg-transparent' 
-                        : day.hasEntry 
-                          ? 'bg-pink-400 shadow-[0_0_8px_rgba(244,114,182,0.4)]' 
-                          : 'bg-slate-50 hover:bg-pink-50 border border-slate-100'
-                      }
-                    `}
-                  />
-                ))}
+            <div className="flex gap-2">
+              {/* Day Labels (Left) */}
+              <div className="flex flex-col justify-between text-[10px] text-slate-400 font-medium pt-[20px] pb-1 w-[23px] h-[142px]">
+                <span className="leading-[14px]"></span>
+                <span className="leading-[14px]">Mon</span>
+                <span className="leading-[14px]"></span>
+                <span className="leading-[14px]">Wed</span>
+                <span className="leading-[14px]"></span>
+                <span className="leading-[14px]">Fri</span>
+                <span className="leading-[14px]"></span>
+              </div>
+
+              {/* Month Labels & Grid Wrapper */}
+              <div className="flex-1 overflow-hidden">
+                {/* Month Labels (Top) */}
+                <div className="relative h-[20px] w-full text-[10px] text-slate-400 font-medium">
+                  {monthLabels.map((label, i) => (
+                    <span 
+                      key={i} 
+                      className="absolute bottom-1"
+                      style={{ left: `${label.colIndex * 18}px` }}
+                    >
+                      {label.text}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Grid */}
+                <div 
+                  className="grid gap-[4px]" 
+                  style={{ 
+                    gridTemplateRows: 'repeat(7, 14px)', 
+                    gridAutoFlow: 'column',
+                    width: 'max-content' 
+                  }}
+                >
+                  {graphData.map((day, i) => (
+                    <div
+                      key={i}
+                      title={day.isFuture ? '' : `${getDisplayDate(day.dateStr)}`}
+                      className={`
+                        w-[14px] h-[14px] rounded-[3px] transition-all duration-300
+                        ${day.isFuture 
+                          ? 'bg-transparent' 
+                          : day.hasEntry 
+                            ? 'bg-pink-400 shadow-[0_0_8px_rgba(244,114,182,0.4)]' 
+                            : 'bg-slate-50 border border-slate-100'
+                        }
+                      `}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </section>
@@ -267,7 +314,6 @@ export default function App() {
             <div className="absolute inset-0 bg-gradient-to-br from-pink-50 to-white rounded-3xl border border-pink-100/50 shadow-sm transform -rotate-1 scale-[1.02] -z-10"></div>
             <div className="bg-white rounded-3xl border border-pink-100/50 shadow-sm p-4 focus-within:ring-4 ring-pink-50 transition-all duration-300">
               
-              {/* Toolbar */}
               <div className="flex items-center gap-1 pb-3 mb-2 border-b border-pink-50 text-slate-400">
                 <button 
                   onMouseDown={(e) => { e.preventDefault(); executeCommand('bold'); }}
@@ -362,49 +408,31 @@ export default function App() {
           </section>
         </main>
 
-        {/* --- Global Styles --- */}
         <style dangerouslySetInnerHTML={{__html: `
-          .no-scrollbar::-webkit-scrollbar {
-            display: none;
-          }
-          .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-          }
+          .no-scrollbar::-webkit-scrollbar { display: none; }
+          .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
           
-          /* Custom Editor Styles */
           .custom-editor:empty:before {
             content: attr(data-placeholder);
-            color: #cbd5e1; /* text-slate-300 */
+            color: #cbd5e1;
             font-weight: 300;
             pointer-events: none;
             display: block;
           }
           
-          /* Rendered Content Formatting */
           .editor-content ul, .custom-editor ul {
             list-style-type: disc;
             padding-left: 1.5rem;
             margin-top: 0.25rem;
             margin-bottom: 0.25rem;
           }
-          .editor-content li, .custom-editor li {
-            margin-bottom: 0.125rem;
-          }
+          .editor-content li, .custom-editor li { margin-bottom: 0.125rem; }
           .editor-content b, .editor-content strong, 
-          .custom-editor b, .custom-editor strong {
-            font-weight: 600;
-            color: #0f172a; 
-          }
+          .custom-editor b, .custom-editor strong { font-weight: 600; color: #0f172a; }
           .editor-content i, .editor-content em,
-          .custom-editor i, .custom-editor em {
-            font-style: italic;
-          }
+          .custom-editor i, .custom-editor em { font-style: italic; }
           .editor-content strike, .editor-content s,
-          .custom-editor strike, .custom-editor s {
-            text-decoration: line-through;
-            color: #94a3b8; 
-          }
+          .custom-editor strike, .custom-editor s { text-decoration: line-through; color: #94a3b8; }
         `}} />
       </div>
     </div>
